@@ -1,0 +1,487 @@
+###HIVE QUERIES
+------------------------
+
+Datasets in Hadoop root dir
+
+>> wget ml-cloud-dataset.s3.amazonaws.com/u.user #user_data
+
+>> aws s3 cp /root/u.user  s3://<bucket_name>/tables/ #Moving to S3 Bucket 
+
+set hive.execution.engine; #to check which engine
+*************************************************************************************************************************************
+##Database Creation
+
+show databases; --List all DB
+
+create database if not exists demo; --Creating DB
+
+create database if not exists demo comment " this is a demo db ;--Creating DB with comment
+
+create database if not exists demo_1 comment "this is a demo db" with dbproperties ("creator" = "Mathan", "date"="2021_Oct_28");
+--Creating DB with comment & Db properties
+
+describe database extended demo ; --Print the Database details
+
+set hive.cli.print.header=true ; --Print header
+
+show databases; --List all DBs
+
+use demo; --into Demo DB
+**************************************************************************************************************************************
+
+##Creation of internal Table
+
+create table if not exists user_info (
+id int,
+age int,
+gender string,
+profession string,
+reviews int
+)
+row format delimited 
+fields terminated by '|'
+lines terminated by '\n'
+stored as textfile; --Creating a table
+
+load data local inpath '/root/u.user' into table user_info;
+
+describe user_info --see structure of the table
+
+select * from user_info limit 5; --simple select query
+*****************************************************************************************************************************************
+##Creattion of External table 
+
+create external table if no exists user_info_ext (
+u_id int,
+age int,
+gender string,
+professtion string,
+reviews int
+)
+row format delimited
+fields terminated by '|'
+lined terminated by '\n'
+stored as textfile;
+
+load data local inpath '/root/u.user' into table user_info_ext; #loading a user data as external table
+
+drop table user_info_ext; --deleting a table
+****************************************************************************************************************************************
+
+##Move the data from one table to another
+
+create table if not exists second_table (
+u_id int,
+age int,
+profession string
+) 
+stored as textfile;
+
+
+insert into table second_table select id,age,profession from user_info;
+
+create table if not exists male_table (
+u_id int,
+gender string,
+profession string
+) 
+stored as textfile;
+
+create table if not exists female_table (
+u_id int,
+gender string,
+profession string
+) 
+stored as textfile;
+
+from user_info insert into table male_table select id,gender,profession where gender ='M' 
+insert into table female_table select id,gender,profession where gender ='F' ;
+*********************************************************************************************************************************************
+##Alter table
+
+alter table male_table add columns (name string); --adding a new columns
+
+alter table male_table change name name string after u_id; --change the possition of the table cols
+********************************************************************************************************************************************
+## Orderby , Sortby , Distribute by, Cluster by
+
+select * from user_info order by age limit 10; --order by enitre col asending
+select * from user_info order by age desc limit 10; --order by enitre col desending
+
+select * from user_info sort by age limit 10; --sort by at reducer level (its has some overlaps b/w reducers)
+
+select * from user_info distribute by age limit 10; --distribute at reducer level but not sorted no overlap
+
+select * from user_info cluster by age limit 10; --combination of sort and distribute by
+
+*********************************************************************************************************************************************
+##Indexing
+
+create index ind_1 on table user_info(profession) as 'COMPACT' with deferred rebuild;--create index on user table on col profession not activate(deferred)
+
+alter index ind_1 on user_info rebuild; --activate the index
+
+create index ind_2 on table user_info(profession) as 'COMPACT' with deferred rebuild as rcfile; --index stored as rcfile
+
+alter index ind_2 on user_info rebuild;
+
+create index ind_3 on table user_info(profession) as 'BITMAP' with deferred rebuild;--bit map index
+
+alter index ind_3 on user_info rebuild;
+
+show formatted index on user_info;
+***********************************************************************************************************************************************
+
+##Practice question I
+
+--Download the Airlines Data
+>> wget ml-cloud-dataset.s3.amazonaws.com/Airlines_data.txt
+
+#table Creation
+CREATE EXTERNAL TABLE airlines(
+`SNo` int, `Year` int, `Month` int, `DayofMonth` int, `DayOfWeek` int, `DepTime` int, `CRSDepTime` int,
+ `ArrTime` int, `CRSArrTime` int, `UniqueCarrier` string, `FlightNum` int, `TailNum` string, `ActualElapsedTime` int, 
+`CRSElapsedTime` int, `AirTime` int, `ArrDelay` int, `DepDelay` int, `Origin` string, `Dest` string, `Distance` int, `TaxiIn` int, 
+`TaxiOut` int, `Cancelled` int, `CancellationCode` string, `Diverted` int, `CarrierDelay` int, `WeatherDelay` int,
+ `NASDelay` int,`SecurityDelay` int, `LateAircraftDelay` int )
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '|'
+STORED AS TEXTFILE;
+
+load data local inpath '/root/Airlines_data.txt' into table airlines;
+
+--Q1: In which year, an airport has maximum bookings?
+
+select Year,Origin,count(SNo) as bookings from airlines group by Origin,Year order by bookings desc limit 1;
+--Year 2004- Airport ORD - Booking 5320
+
+--Q2:In which year the maximum airline bookings were cancelled?
+
+select year,sum(cancelled) as cancelation from airlines group by year order by cancelation desc;
+--Year 2005 cacelled 705
+
+--Q3:  finding the average of an early arrival (i.e. an average of negative values of “ArrDelay”) for the year 2008?
+
+SELECT avg(ArrTime) as avg_Arr_Time from airlines WHERE Year = 2008 and ArrDelay < 0;
+
+--Q4: Which airports have minimum distance?
+
+select origin, dest, distance from airlines sort by distance limit 1;
+--origin STT - Dest SJU - Distance 68
+
+--Q5: Which flight(ID) get late to depart due to weather and waited for 6.35 hours?
+select sno, year, depdelay from airlines where weatherdelay =381;
+--sno	year	depdelay
+--3635	2004	381
+
+--Q6: What is the count of bookings in 2004, for flight number 749?
+select year,flightnum,count(sno) as bookings from airlines group by year,flightnum having flightnum=749;
+***************************************************************************************************************************************************
+##Joins in Hive
+
+#getting dataset to root dir
+
+>> wget http://ml-cloud-dataset.s3.amazonaws.com/employee
+>> wget http://ml-cloud-dataset.s3.amazonaws.com/dept
+ 
+ create table if not exists employee(
+       emp_id int,
+       emp_name string,
+       designation string,
+       salary int,
+       mgr_id int,
+       dept_id int,
+       code string
+ )
+row format delimited fields terminated by ','
+lines terminated by '\n' 
+stored as textfile; --employee table
+
+
+create table if not exists department(
+       dep_id int,
+       dep_name string,
+       dep_city string,
+       code string
+ )
+row format delimited fields terminated by ','
+lines terminated by '\n' 
+stored as textfile; --dept table
+
+load data local inpath '/root/employee' into table employee;--loading data to employee table
+load data local inpath '/root/dept' into table department; --loading data to dept table
+
+select e.emp_name, e.designation, e.salary, d.dep_name 
+from employee e left join department d on e.dept_id=d.dep_id;
+
+select /* + mapjoin(employee) */ 
+e.emp_name, e.designation, e.salary, d.dep_name 
+from employee e left join department d on e.dept_id=d.dep_id;  --map join
+
+set hive.auto.convert.join=false;
+******************************************************************************************************************************************************
+###Partitioning
+
+create table if not exists user_info_part (
+id int,
+age int,
+gender string,
+reviews int
+)
+partitioned by (profession string)
+row format delimited 
+fields terminated by '|'
+lines terminated by '\n'
+stored as textfile;
+
+insert into table user_info_part partition (profession = "engineer")
+select id,age,gender,reviews from user_info where profession = "engineer"; --insert engineer data to table manually
+
+##Dynamic Partitioning
+set hive.exec.dynamic.partition=true;
+set hive.exec.dynamic.partition.mode= nonstrict;
+
+create table if not exists dyn_part_user_info (
+    id int,
+    age int,
+    gender string,
+    ratings int)
+partitioned by (profession string) 
+row format delimited fields  terminated by '|'
+lines terminated by '\n';
+
+insert into table dyn_part_user_info partition(profession)
+select id,age,gender,reviews,profession from user_info;
+
+show partitions user_info_part;
+show partitions dyn_part_user_info;
+
+insert into table user_info_part partition (profession ="doctor")
+select id,age,gender,reviews from user_info where profession = "doctor";
+
+alter table user_info_part drop partition (profession ="doctor");
+*******************************************************************************************************************************************************
+###Bucketing
+
+set hive.exec.dynamic.partition.mode=nonstrict;
+set hive.exec.dynamic.partition=true;
+set hive.enforce.bucketing=true;
+
+create table if not exists buck_part_user_info (
+    id int,
+    age int,
+    gender string,
+    ratings int)
+partitioned by (profession string) 
+clustered by (age) into 8 buckets
+row format delimited fields  terminated by '|'
+lines terminated by '\n';
+
+insert into table buck_part_user_info partition(profession) 
+select id,age,gender,reviews,profession from user_info;
+
+***********************************************************************************************************************************************************
+###Practice Questions II
+
+SET hive.exec.max.dynamic.partitions=100000;
+SET hive.exec.max.dynamic.partitions.pernode=100000;
+
+
+create external table if not exists airlines_partitioned (
+`SNo` int, `Month` int, `DayofMonth` int, `DayOfWeek` int,
+`DepTime` int, `CRSDepTime` int, `ArrTime` int, `CRSArrTime` int,
+`UniqueCarrier` string, `FlightNum` int, `TailNum` string,
+`ActualElapsedTime` int, `CRSElapsedTime` int, `AirTime` int,
+`ArrDelay` int, `DepDelay` int, `Origin` string, `Dest` string,
+`Distance` int, `TaxiIn` int, `TaxiOut` int, `Cancelled` int,
+`CancellationCode` string, `Diverted` int, `CarrierDelay` int,
+`WeatherDelay` int, `NASDelay` int, `SecurityDelay` int, 
+`LateAircraftDelay` int)
+partitioned by (`Year` int);
+
+insert overwrite table airlines_partitioned partition(`Year`)
+select `SNo`, `Month`, `DayofMonth`, `DayOfWeek`, `DepTime`, `CRSDepTime`,
+`ArrTime`, `CRSArrTime`, `UniqueCarrier`, `FlightNum`, `TailNum`,
+`ActualElapsedTime`, `CRSElapsedTime`, `AirTime`, `ArrDelay`,`DepDelay`,
+`Origin`, `Dest`, `Distance`, `TaxiIn`, `TaxiOut`, `Cancelled`, `CancellationCode`,
+`Diverted`, `CarrierDelay`, `WeatherDelay`, `NASDelay`, `SecurityDelay`,
+`LateAircraftDelay`, `Year` 
+from airlines;
+
+Q2: How many partitions will be created when you use 'Year' as a partition key in the dynamic partition?
+
+SELECT count(distinct Year) as unique_years
+from airlines_partitioned;
+
+Ans: 5
+
+Q5: Which year has the maximum average taxi-out time, and what is its value?
+
+select year, avg(TaxiOut) from airlines_partitioned  group by year;
+
+Ans: 2004, 18.5
+
+
+
+Q6: What will be the average of an early arrival (i.e., the average of the negative values of 'ArrDelay') for the year 2008?
+
+select year, avg(ArrDelay) from airlines_partitioned where ArrDelay<0 group by year;
+
+Ans : 9.08
+
+Q9: What is the count of the diverted flights that flew on Fridays in the year 2005?
+
+select count(year) from airlines_partitioned where year=2005 and DayOfWeek=5 and Diverted=1;
+
+ans : 7
+*****************************************************************************************************************************************************************************
+###Data Analysis With HIVE
+
+>> aws s3 cp s3://hivedata-bde/Electronics_5.json s3://mathanbuck/tables/ --Uploading data to My S3 bucket 
+
+Add jar /usr/lib/hive-hcatalog/share/hcatalog/hive-hcatalog-core-2.3.7-amzn-4.jar; --For parse Json data
+
+create external table amz_review.amz_review_dump (json_dump string)  
+location 's3a://mathanbuck/tables/';
+
+
+create external table amz_review_col (
+    reviewerid string,
+    asin string,
+    reviewername string,
+    helpful array<int>,
+    reviewtext string,
+    overall double,
+    summary string,
+    unixreviewtime bigint)
+    row format serde 'org.apache.hive.hcatalog.data.JsonSerDe'
+    with serdeproperties ('paths'= '')
+    location 's3a://mathanbuck/tables/';
+	
+Select * from amz_review_col limit 5;
+
+select count(1) from amz_review_col;
+
+select count(distinct asin) as products from amz_review_col;
+
+1)#No of reviews per year
+Select rate_year , count(1) cnt from (
+Select year(from_unixtime(unixreviewtime)) rate_year from amz_review_col )T group by rate_year order by rate_year desc;
+
+#No of review of each products
+select asin as products, count(1) as cnt from amz_review_col group by asin order by cnt desc limit 2;
+
+2)#Find the help rate
+
+select product,sum(help_rate) as sum_hlp_rate from (
+select asin as product, case when helpful[0]=0 then 0.00 
+else round(helpful[0]/helpful[1],2) end as help_rate from amz_review_col)T group by product order by sum_hlp_rate desc limit 10;
+
+3)#including the overall score 
+
+select product,round(sum(help_rate),2) as sum_hlp_rate from (
+select asin as product, case when helpful[0]=0 then 0.00 
+else round(helpful[0]/helpful[1]*overall,2) end as help_rate from amz_review_col)T group by product order by sum_hlp_rate desc limit 10;
+
+#same above with min and max
+1.1
+select year, min(cnt),max(cnt) from (Select rate_year , count(1) cnt from (
+Select year(from_unixtime(unixreviewtime)) rate_year from amz_review_col )T group by rate_year)A);
+
+
+#partititon
+
+set hive.exec.dynamic.partition=true;
+set hive.exec.dynamic.partition.mode=nonstrict;
+set hive.exec.max.dynamic.partitions=1000;
+set hive.exec.max.dynamic.partitions.pernode=1000;
+
+create external table if not exists amz_review_yr_mnth_part (
+    reviewerid string, 
+    asin string, 
+    reviewername string, 
+    helpful array<int>, 
+    reviewtext string,
+    overall double, 
+    summary string, 
+    unixreviewtime bigint) partitioned by
+(yr int, mnth int)
+location 's3a://amnreviewmat/table'
+
+
+insert overwrite table amz_review_yr_mnth_part partition(yr, mnth)
+select    reviewerid,
+          asin,
+          reviewername,
+          helpful,
+          reviewtext,
+          overall,
+          summary,
+          unixreviewtime,
+          year(from_unixtime(unixreviewtime)) as yr,
+          month(from_unixtime(unixreviewtime)) as mnth
+from      amz_review_col
+
+
+select overall, count(1) as cnt from amz_rev_part
+where yr = 2004 and mnth = 1 
+group by overall
+order by cnt desc
+limit 10; ## it took 5 secs
+
+select overall, count(1) as cnt from amz_review_col
+where year(from_unixtime(unixreviewtime))=2004 and month(from_unixtime(unixreviewtime))= 1 
+group by overall
+order by cnt desc; ## it took 44 secs
+
+
+
+Select asin as Product , RANK() OVER(order by overall)  from amz_review_yr_mnth_part
+
+
+Select asin as Product , DENSE_RANK() OVER(order by overall)  from amz_review_yr_mnth_part 
+
+
+set hive.enforce.bucketing=true;
+
+create table if not exists amz_rev_clus (
+reviewerid string, 
+    asin string, 
+    reviewername string, 
+    helpful array<int>, 
+    reviewtext string,
+    overall double, 
+    summary string, 
+    unixreviewtime bigint)
+partitioned by ( yr int , mnth int)
+
+clustered by (overall) into 5 buckets;
+
+insert into amz_rev_clus partition( yr, mnth) select
+ reviewerid,
+          asin,
+          reviewername,
+          helpful,
+          reviewtext,
+          overall,
+          summary,
+          unixreviewtime,
+          year(from_unixtime(unixreviewtime)) as yr,
+          month(from_unixtime(unixreviewtime)) as mnth
+from      amz_review_col
+
+
+create table amazon_hbase(reviewerid string, asin string, summary string)
+STORED BY 'org.apache.hadoop.hive.hbase.HBaseStorageHandler'
+WITH SERDEPROPERTIES ("hbase.columns.mapping" = ":key,cf1:asin,cf1:summary")
+TBLPROPERTIES ("hbase.table.name" = "amazon_hive");
+
+insert into amazon_hbase select reviewerid, asin, summary from amz_review_col;
+
+
+#HBASE shell comment
+scan 'amazon_hive', {'LIMIT' => 5}
+
+M@th@nGit||ub123!
+C:\Users\dataq\OneDrive\Desktop\Hive - Project _Amazon Review Data Analysis.txt
+
+
